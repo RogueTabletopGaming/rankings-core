@@ -1,0 +1,14 @@
+{
+  "entries": ["assembly/index.ts"],
+  "options": {
+    "noAssert": true,
+    "optimizeLevel": 3,
+    "shrinkLevel": 0,
+    "outFile": "../dist/wasm/ratings.wasm",
+    "textFile": "../dist/wasm/ratings.wat"
+  },
+  "targets": {
+    "debug": { "noAssert": false, "optimizeLevel": 0, "shrinkLevel": 0 },
+    "release": { "noAssert": true, "optimizeLevel": 3, "shrinkLevel": 0 }
+  }
+}
