@@ -1,66 +1,127 @@
-// src/index.ts
+// src/standings/types.ts
+// Shared types for standings engines (Swiss, Round-Robin, ...)
 
-// ──────────────────────────────────────────────────────────────
-// Standings (facade + engines + core types)
-// Re-export from the standings barrel so users don’t need deep paths.
-// ──────────────────────────────────────────────────────────────
-export {
-  // Facade
-  computeStandings,
-  type ComputeStandingsRequest,
-  type ComputeStandingsOptions,
-  type StandingsMode,
+export type PlayerID = string;
 
-  // Engines
-  computeSwissStandings,
-  type ComputeSwissOptions,
-  computeRoundRobinStandings,
-  type ComputeRoundRobinOptions,
+export enum MatchResult {
+  WIN = "W",
+  LOSS = "L",
+  DRAW = "D",
+  BYE = "BYE",
+  FORFEIT_WIN = "FORFEIT_W",
+  FORFEIT_LOSS = "FORFEIT_L",
+}
 
-  // Core types
-  type PlayerID,
-  type Match,
-  type StandingRow,
-  MatchResult,
-} from './standings';
+export interface Match {
+  id: string;
+  round: number;
+  playerId: PlayerID;
+  opponentId: PlayerID | null; // null → bye
+  result: MatchResult;
+  gameWins: number;
+  gameLosses: number;
+  gameDraws: number;
+  // Optional per-match extras
+  opponentGameWins?: number;
+  opponentGameLosses?: number;
+  opponentGameDraws?: number;
+  penalties?: number;
+}
 
-// ──────────────────────────────────────────────────────────────
-// Pairings (facade + swiss + round-robin helpers)
-// ──────────────────────────────────────────────────────────────
-export {
-  // Facade
-  generatePairings,
-  type PairingMode,
-  type PairingRequest,
-  type PairingResult,
+export interface StandingRow {
+  rank: number;
+  playerId: PlayerID;
 
-  // Swiss engine (direct export for convenience)
-  generateSwissPairings,
-  type SwissPairingOptions,
-  type SwissPairingResult,
+  // Primary points and tie-breakers
+  matchPoints: number;
+  mwp: number; // Match Win %
+  omwp: number; // Opponents’ Match Win %
+  gwp: number; // Game Win %
+  ogwp: number; // Opponents’ Game Win %
+  sb: number; // Sonneborn–Berger (strength of victory)
 
-  // Round-robin helpers
-  buildRoundRobinSchedule,
-  getRoundRobinRound,
-  type RoundRobinOptions,
-  type RoundDefinition,
-} from './pairings';
+  // Record summary
+  wins: number;
+  losses: number;
+  draws: number;
+  byes: number;
+  roundsPlayed: number;
 
-// ──────────────────────────────────────────────────────────────
-// Ratings (ELO now, room for others later)
-// NOTE: Ensure ./ratings/index.ts actually exports `updateRatings`
-// (generic facade). If you haven’t added it yet, remove that export
-// line or alias it to ELO inside ./ratings/index.ts.
-// ──────────────────────────────────────────────────────────────
-export {
-  // Generic facade (if implemented in ./ratings/index.ts)
-  updateRatings,
+  // Game-level aggregates (for visibility)
+  gameWins: number;
+  gameLosses: number;
+  gameDraws: number;
 
-  // ELO
-  updateEloRatings,
-  expectedScore,
-  type EloMatch,
-  type EloOptions,
-  type EloUpdateResult,
-  type EloResult,
-} from './ratings';
+  penalties: number;
+  opponents: PlayerID[];
+}
+
+// ---- Options shared helpers ----
+export interface PointsConfig {
+  win?: number;
+  draw?: number;
+  loss?: number;
+  bye?: number;
+}
+
+export interface TiebreakFloors {
+  /** Minimum floor applied to opponent percentages (e.g., 0.33). */
+  opponentPctFloor?: number;
+}
+
+// ---- Swiss standings options ----
+export interface ComputeSwissOptions {
+  /** Seed for deterministic fallbacks in tie resolution. */
+  eventId?: string;
+  /** Whether to apply head-to-head ordering inside tied blocks (default true). */
+  applyHeadToHead?: boolean;
+  /** Floors for opponent-based percentages (default { opponentPctFloor: 0.33 }). */
+  tiebreakFloors?: TiebreakFloors;
+  /** Match points mapping (default 3/1/0/3). */
+  points?: PointsConfig;
+  /** If true, auto-create the opponent's row when only one side of a match is present. */
+  acceptSingleEntryMatches?: boolean;
+}
+
+// ---- Round-robin standings options ----
+export interface ComputeRoundRobinOptions {
+  /** Seed for deterministic fallbacks if needed. */
+  eventId?: string;
+  /** Included for parity; RR engine may ignore this. */
+  applyHeadToHead?: boolean;
+  /** Floors for opponent-based percentages (default { opponentPctFloor: 0.33 }). */
+  tiebreakFloors?: TiebreakFloors;
+  /** Match points mapping (default 3/1/0/3). */
+  points?: PointsConfig;
+  /**
+   * If true, accept a single row per pairing (only one player's perspective)
+   * and synthesize the missing opposite row automatically.
+   * Default: false (expect both directions to be present).
+   */
+  acceptSingleEntryMatches?: boolean;
+}
+
+// ---- Single elimination standings ----
+export interface ComputeSingleEliminationOptions {
+  /** Deterministic fallback key, same idea as Swiss. */
+  eventId?: string;
+  /**
+   * Used to break ties between players eliminated in the same round.
+   * Lower = better (e.g. Swiss rank).
+   */
+  seeding?: Record<PlayerID, number>;
+  /**
+   * If you have a 3rd-place match in the data and want the function
+   * to honor it. We can expand this later.
+   */
+  useBronzeMatch?: boolean;
+}
+
+/**
+ * Single-elim rows always have the regular standing shape
+ * PLUS the round they reached / were eliminated in.
+ */
+export interface SingleEliminationStandingRow extends StandingRow {
+  /** e.g. maxRound+1 for champion, or the round they lost in */
+  elimRound: number;
+}

@@ -1,33 +1,35 @@
 # 🏆 rankings-core
 
-A zero-dependency TypeScript library to compute and manage **tournament standings**, **pairings**, and **ratings** — supporting both **Swiss** and **Round‑Robin** formats — with modern tie‑breakers such as **Buchholz (OMW%)**, **Game Win % (GWP)**, **Opponent Game Win % (OGWP)**, and **Sonneborn–Berger (SB)**.  
-Includes **ELO rating updates** for leagues and persistent skill tracking, plus an optional **WebAssembly (WASM)** build for ultra‑fast browser use.
+A zero-dependency TypeScript library to compute and manage **tournament standings**, **pairings**, and **ratings** — supporting **Swiss**, **Round-Robin**, and now **Single Elimination** formats — with modern tie-breakers such as **Buchholz (OMW%)**, **Game Win % (GWP)**, **Opponent Game Win % (OGWP)**, and **Sonneborn–Berger (SB)**.  
+Includes **ELO rating updates** for leagues and persistent skill tracking, plus an optional **WebAssembly (WASM)** build for ultra-fast browser use.
 
 ---
 
 ## ✨ Features
 
 - 🧮 **Standings**
-  - Swiss & Round‑Robin modes
-  - Head‑to‑head resolving inside tie blocks
+  - Swiss · Round-Robin · Single Elimination modes
+  - Head-to-head resolving inside tie blocks (Swiss & RR)
   - Sonneborn–Berger (SB), OMW%, GWP, OGWP
-  - Deterministic seed‑based fallback ordering
-  - BYEs, forfeits, and penalties handled correctly
-  - `acceptSingleEntryMatches` for lenient ingestion (auto‑mirrors missing results)
+  - Deterministic seed-based fallback ordering
+  - BYEs, forfeits, penalties, and *double-losses* handled correctly
+  - `acceptSingleEntryMatches` for lenient ingestion (auto-mirrors missing results)
+  - `elimRound` field for Single Elimination to indicate round reached
 
 - 🤝 **Pairings**
   - Swiss pairing generator (avoids rematches, assigns/rotates byes, light backtracking)
-  - Round‑robin schedule generator (supports odd/even players, stable byes)
+  - Round-Robin schedule generator (supports odd/even players, stable byes)
+  - (Single Elimination pairing generation planned)
   - Generic `generatePairings({ mode })` facade to route between strategies
 
 - 📈 **Ratings**
   - ELO updates (sequential & simultaneous batch modes)
-  - Custom K, KDraw, per‑player K, caps/floors, and `drawScore`
+  - Custom K, KDraw, per-player K, caps/floors, and `drawScore`
 
 - ⚙️ **Engineering**
   - 100% TypeScript, zero runtime deps
   - Comprehensive Vitest coverage
-  - Optional WebAssembly target for in‑browser speedups
+  - Optional WebAssembly target for in-browser speedups
 
 ---
 
@@ -43,7 +45,7 @@ yarn add rankings-core
 
 ## 🧩 Unified Standings API
 
-Both Swiss and Round‑Robin standings are computed via a **single entrypoint**.
+All tournament formats — **Swiss**, **Round-Robin**, and **Single Elimination** — are computed via a single entrypoint.
 
 ### Example (Swiss)
 
@@ -75,7 +77,9 @@ console.table(
 );
 ```
 
-### Example (Round‑Robin, with single‑entry ingestion)
+---
+
+### Example (Round-Robin, with single-entry ingestion)
 
 ```ts
 import { computeStandings, MatchResult } from "rankings-core";
@@ -98,11 +102,51 @@ const rr = computeStandings({
 console.table(rr);
 ```
 
+---
+
+### Example (Single Elimination)
+
+```ts
+import { computeStandings, MatchResult } from "rankings-core";
+
+const matches = [
+  // semifinals
+  { id: "sf1-a", round: 1, playerId: "A", opponentId: "B", result: MatchResult.WIN },
+  { id: "sf1-b", round: 1, playerId: "B", opponentId: "A", result: MatchResult.LOSS },
+  { id: "sf2-c", round: 1, playerId: "C", opponentId: "D", result: MatchResult.WIN },
+  { id: "sf2-d", round: 1, playerId: "D", opponentId: "C", result: MatchResult.LOSS },
+  // final
+  { id: "f-a", round: 2, playerId: "A", opponentId: "C", result: MatchResult.WIN },
+  { id: "f-c", round: 2, playerId: "C", opponentId: "A", result: MatchResult.LOSS },
+];
+
+const singleElim = computeStandings({
+  mode: "singleelimination",
+  matches,
+  options: {
+    eventId: "SE-DEMO",
+    seeding: { A: 1, C: 2, B: 3, D: 4 },
+  },
+});
+
+console.table(
+  singleElim.map(r => ({
+    Rank: r.rank,
+    Player: r.playerId,
+    ElimRound: r.elimRound, // 3 = Champion if maxRound=2
+  }))
+);
+```
+
+**Double-loss scenarios** are fully supported — if both players receive `MatchResult.LOSS` in the same pairing (both sides recorded explicitly), the engine will correctly treat both as eliminated in that round.
+
+---
+
 ### `computeStandings` options
 
 ```ts
 interface ComputeStandingsRequest {
-  mode: "swiss" | "roundrobin";
+  mode: "swiss" | "roundrobin" | "singleelimination";
   matches: Match[];
   options?: {
     eventId?: string;                    // deterministic seed for tie fallback
@@ -110,6 +154,8 @@ interface ComputeStandingsRequest {
     tiebreakFloors?: { opponentPctFloor?: number }; // default 0.33
     points?: { win?: number; draw?: number; loss?: number; bye?: number }; // default 3/1/0/3
     acceptSingleEntryMatches?: boolean;  // RR & Swiss both support this
+    seeding?: Record<string, number>;    // Single Elim seeding map
+    useBronzeMatch?: boolean;            // Single Elim (optional)
   };
 }
 ```
@@ -283,7 +329,7 @@ Everything is covered by **Vitest**:
 
 | Module  | Coverage highlights |
 |---------|---------------------|
-| Standings | Swiss + Round‑Robin, tie‑breakers, BYEs, penalties, single‑entry ingestion |
+| Standings | Swiss · Round‑Robin · Single Elimination, tie‑breakers, BYEs, penalties, double‑loss cases |
 | Pairings  | Swiss pairing rules, rematch avoidance, backtracking, RR schedules |
 | Ratings   | ELO updates, draws, per‑player K, floors, caps, modes |
 | Core      | Determinism, immutability, snapshot stability |
@@ -298,14 +344,37 @@ npx vitest run --coverage
 
 ---
 
+## 🧭 Migration Notes
+
+If you’re upgrading from a previous version (≤ 1.x) of **`rankings-core`**, here’s what’s new and what stays compatible:
+
+- **Existing Swiss and Round-Robin code works unchanged.**  
+  You can continue using `computeStandings({ mode: "swiss" | "roundrobin" })` as before.
+
+- **New:** `mode: "singleelimination"` is now supported by the same unified `computeStandings()` API.  
+  It introduces a new `elimRound` field in results to indicate how far each player advanced.  
+  Example: in a 4-player bracket (maxRound = 2), the champion gets `elimRound = 3`.
+
+- **New type exports:**  
+  - `ComputeSingleElimOptions` for configuration  
+  - `SingleElimStandingRow` for output type with `elimRound`
+
+- **Double-loss support:** both players can be given `MatchResult.LOSS` in the same pairing.  
+  Just make sure both sides are explicitly recorded.
+
+- **No breaking changes:** all existing imports, Swiss tie-breakers, and pairing utilities remain compatible.
+
+---
+
 ## 🗺️ Roadmap
 
 - [x] Round‑Robin standings & schedules  
 - [x] Unified `computeStandings()` dispatcher  
 - [x] `acceptSingleEntryMatches` (lenient ingestion)  
 - [x] Optional WebAssembly build for browsers  
+- [x] **Single Elimination standings engine + elimRound support** ✅  
+- [ ] Single Elimination pairing generator  
 - [ ] Glicko‑2 rating system  
-- [ ] Single‑elimination pairings  
 - [ ] JSON schema validation  
 
 ---

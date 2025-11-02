@@ -9,6 +9,8 @@ import type {
 } from './types';
 import { MatchResult } from './types';
 
+import { fnv1a } from '../utils/hash';
+
 // ---------- utils ----------
 const PCT_FLOOR_DEFAULT = 0.33;
 
@@ -25,15 +27,6 @@ function isRealOpponent(id: PlayerID | null): id is PlayerID {
 // Safe array element accessor for noUncheckedIndexedAccess environments
 function at<T>(arr: T[], idx: number): T | undefined {
   return arr[idx];
-}
-
-function fnv1a(str: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
-  }
-  return h >>> 0;
 }
 
 // ---------- grouping ----------

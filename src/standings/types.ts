@@ -1,5 +1,5 @@
 // src/standings/types.ts
-// Shared types for standings engines (Swiss, Round-Robin, ...)
+// Shared types for standings engines (Swiss, Round-Robin, Single-Elim, ...)
 
 export type PlayerID = string;
 
@@ -18,9 +18,12 @@ export interface Match {
   playerId: PlayerID;
   opponentId: PlayerID | null; // null → bye
   result: MatchResult;
-  gameWins: number;
-  gameLosses: number;
-  gameDraws: number;
+
+  // Now optional — engines already do (m.gameWins || 0)
+  gameWins?: number;
+  gameLosses?: number;
+  gameDraws?: number;
+
   // Optional per-match extras
   opponentGameWins?: number;
   opponentGameLosses?: number;
@@ -34,11 +37,11 @@ export interface StandingRow {
 
   // Primary points and tie-breakers
   matchPoints: number;
-  mwp: number; // Match Win %
-  omwp: number; // Opponents’ Match Win %
-  gwp: number; // Game Win %
-  ogwp: number; // Opponents’ Game Win %
-  sb: number; // Sonneborn–Berger (strength of victory)
+  mwp: number;   // Match Win %
+  omwp: number;  // Opponents’ Match Win %
+  gwp: number;   // Game Win %
+  ogwp: number;  // Opponents’ Game Win %
+  sb: number;    // Sonneborn–Berger (strength of victory)
 
   // Record summary
   wins: number;
@@ -84,8 +87,6 @@ export interface ComputeSwissOptions {
 }
 
 // ---- Round-robin standings options ----
-// For now, RR uses the same points and tiebreak floors; H2H may be ignored by the RR engine.
-// Keeping the shape similar lets callers reuse configs across modes.
 export interface ComputeRoundRobinOptions {
   /** Seed for deterministic fallbacks if needed. */
   eventId?: string;
@@ -101,4 +102,29 @@ export interface ComputeRoundRobinOptions {
    * Default: false (expect both directions to be present).
    */
   acceptSingleEntryMatches?: boolean;
+}
+
+// ---- Single elimination standings ----
+export interface ComputeSingleEliminationOptions {
+  /** Deterministic fallback key, same idea as Swiss. */
+  eventId?: string;
+  /**
+   * Used to break ties between players eliminated in the same round.
+   * Lower = better (e.g. Swiss rank).
+   */
+  seeding?: Record<PlayerID, number>;
+  /**
+   * If you have a 3rd-place match in the data and want the function
+   * to honor it. Kept for future expansion.
+   */
+  useBronzeMatch?: boolean;
+}
+
+/**
+ * Single-elim rows always have the regular standing shape
+ * PLUS the round they reached / were eliminated in.
+ */
+export interface SingleEliminationStandingRow extends StandingRow {
+  /** e.g. maxRound+1 for champion, or the round they lost in */
+  elimRound: number;
 }
