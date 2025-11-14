@@ -124,22 +124,40 @@ describe('Standings dispatcher (mocked) — swiss | roundrobin | singleeliminati
   it('computeStandings(swiss) passes through', () => {
     const rows = api.computeStandings({ mode: 'swiss', matches: [], options: { eventId: 'X' } } as any);
     expect(standingsMod.computeStandings).toHaveBeenCalledTimes(1);
-    expect(rows[0].playerId).toBe('S1');
+    expect((rows as any)[0].playerId).toBe('S1');
   });
 
   it('computeStandings(roundrobin) passes through', () => {
     const rows = api.computeStandings({ mode: 'roundrobin', matches: [], options: {} } as any);
     expect(standingsMod.computeStandings).toHaveBeenCalledTimes(1);
-    expect(rows[0].playerId).toBe('R1');
+    expect((rows as any)[0].playerId).toBe('R1');
   });
 
   it('computeStandings(singleelimination) narrows and exposes eliminationRound', () => {
     const rows = api.computeStandings({ mode: 'singleelimination', matches: [], options: {} } as any);
     expect(standingsMod.computeStandings).toHaveBeenCalledTimes(1);
-    expect(isSingleElimRow(rows[0])).toBe(true);
-    if (isSingleElimRow(rows[0])) {
-      expect(rows[0].eliminationRound ?? rows[0].elimRound).toBe(3);
+    expect(isSingleElimRow((rows as any)[0])).toBe(true);
+    if (isSingleElimRow((rows as any)[0])) {
+      expect(((rows as any)[0].eliminationRound ?? (rows as any)[0].elimRound)).toBe(3);
     }
+  });
+
+  // NEW test: forwards tiebreakVirtualBye through public API
+  it('forwards tiebreakVirtualBye option to the standings dispatcher (swiss)', () => {
+    const opt = {
+      eventId: 'VB-FWD',
+      tiebreakVirtualBye: { enabled: true, mwp: 0.5, gwp: 0.5 },
+    };
+    api.computeStandings({ mode: 'swiss', matches: [], options: opt } as any);
+
+    expect(standingsMod.computeStandings).toHaveBeenCalledTimes(1);
+    const call = (standingsMod.computeStandings as any).mock.calls[0][0];
+    expect(call).toEqual(expect.objectContaining({
+      mode: 'swiss',
+      options: expect.objectContaining({
+        tiebreakVirtualBye: { enabled: true, mwp: 0.5, gwp: 0.5 },
+      }),
+    }));
   });
 });
 

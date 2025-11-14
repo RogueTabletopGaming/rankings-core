@@ -5,9 +5,15 @@ export type {
   PlayerID,
   Match,
   StandingRow,
+  // options & helpers
+  PointsConfig,
+  TiebreakFloors,
+  TiebreakVirtualByeOptions,
+  // engine option shapes
   ComputeSwissOptions,
   ComputeRoundRobinOptions,
   ComputeSingleEliminationOptions,
+  // engine-specific rows
   SingleEliminationStandingRow,
 } from './types';
 export { MatchResult } from './types';
@@ -36,11 +42,13 @@ export type ComputeStandingsRequest =
   | {
       mode: 'swiss';
       matches: Match[];
+      /** Pass virtual-bye config via req.options.tiebreakVirtualBye */
       options?: ComputeSwissOptions;
     }
   | {
       mode: 'roundrobin';
       matches: Match[];
+      /** Pass virtual-bye config via req.options.tiebreakVirtualBye */
       options?: ComputeRoundRobinOptions;
     }
   | {
@@ -52,7 +60,7 @@ export type ComputeStandingsRequest =
 /**
  * Unified standings entrypoint.
  * Note: return type is a union because single elimination
- * returns a StandingRow with `elimRound`.
+ * returns a StandingRow with `eliminationRound`.
  */
 export function computeStandings(
   req: ComputeStandingsRequest

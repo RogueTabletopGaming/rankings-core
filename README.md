@@ -1,6 +1,6 @@
 # 🏆 rankings-core
 
-A zero-dependency TypeScript library to compute and manage **tournament standings**, **pairings**, and **ratings** — supporting **Swiss**, **Round-Robin**, and now **Single Elimination** formats — with modern tie-breakers such as **Buchholz (OMW%)**, **Game Win % (GWP)**, **Opponent Game Win % (OGWP)**, and **Sonneborn–Berger (SB)**.  
+A zero-dependency TypeScript library to compute and manage **tournament standings**, **pairings**, and **ratings** — supporting **Swiss**, **Round-Robin**, and **Single Elimination** formats — with modern tie-breakers such as **Buchholz (OMW%)**, **Game Win % (GWP)**, **Opponent Game Win % (OGWP)**, and **Sonneborn–Berger (SB)**.  
 Includes **ELO rating updates** for leagues and persistent skill tracking, plus an optional **WebAssembly (WASM)** build for ultra-fast browser use.
 
 ---
@@ -15,6 +15,7 @@ Includes **ELO rating updates** for leagues and persistent skill tracking, plus 
   - BYEs, forfeits, penalties, and *double-losses* handled correctly
   - `acceptSingleEntryMatches` for lenient ingestion (auto-mirrors missing results)
   - `eliminationRound` field for Single Elimination to indicate round reached
+  - **NEW:** Optional *Virtual Bye Player* for Swiss tie-breakers — include BYE rounds in OMW%/OGWP calculations as if played vs a fixed virtual opponent
 
 - 🤝 **Pairings**
   - Swiss pairing generator (avoids rematches, assigns/rotates byes, light backtracking)
@@ -47,21 +48,27 @@ yarn add rankings-core
 
 All tournament formats — **Swiss**, **Round-Robin**, and **Single Elimination** — are computed via a single entrypoint.
 
-### Example (Swiss)
+### Example (Swiss with Virtual Bye Player)
 
 ```ts
 import { computeStandings, MatchResult } from "rankings-core";
 
 const matches = [
-  { id: "r1-a", round: 1, playerId: "A", opponentId: "B", result: MatchResult.WIN, gameWins: 2, gameLosses: 0, gameDraws: 0 },
-  { id: "r1-b", round: 1, playerId: "B", opponentId: "A", result: MatchResult.LOSS, gameWins: 0, gameLosses: 2, gameDraws: 0 },
-  { id: "r1-c", round: 1, playerId: "C", opponentId: null, result: MatchResult.BYE },
+  { id: "r1-a", round: 1, playerId: "A", opponentId: null, result: MatchResult.BYE },
+  { id: "r1-b", round: 1, playerId: "B", opponentId: "C", result: MatchResult.WIN },
+  { id: "r1-c", round: 1, playerId: "C", opponentId: "B", result: MatchResult.LOSS },
+  { id: "r2-a", round: 2, playerId: "A", opponentId: "B", result: MatchResult.WIN },
+  { id: "r2-b", round: 2, playerId: "B", opponentId: "A", result: MatchResult.LOSS },
 ];
 
+// Enable the virtual-bye feature (optional)
 const swiss = computeStandings({
   mode: "swiss",
   matches,
-  options: { eventId: "SWISS-DEMO" },
+  options: {
+    eventId: "SWISS-VIRTUAL",
+    tiebreakVirtualBye: { enabled: true, mwp: 0.5, gwp: 0.5 },
+  },
 });
 
 console.table(
@@ -70,12 +77,19 @@ console.table(
     Player: r.playerId,
     MP: r.matchPoints,
     OMW: r.omwp.toFixed(3),
-    GWP: r.gwp.toFixed(3),
     OGWP: r.ogwp.toFixed(3),
-    SB: r.sb.toFixed(1),
+    GWP: r.gwp.toFixed(3),
   }))
 );
 ```
+
+**Explanation:**  
+When `tiebreakVirtualBye.enabled` is `true`, any BYE a player receives contributes a synthetic entry to their OMW%/OGWP calculation.  
+The virtual opponent is *not* shown in results or standings but affects tie-break math as if it had a fixed record.
+
+- Default `mwp` = `0.5` → counts as a draw-like opponent.  
+- Respects `tiebreakFloors` (e.g., `opponentPctFloor = 0.33`).  
+- Multiple BYEs add multiple virtual entries.
 
 ---
 
@@ -85,7 +99,6 @@ console.table(
 import { computeStandings, MatchResult } from "rankings-core";
 
 const matches = [
-  // Only one entry per played match; the mirror is *omitted* on purpose.
   { id: "m1-a", round: 1, playerId: "A", opponentId: "B", result: MatchResult.WIN, gameWins: 2, gameLosses: 0 },
   { id: "m2-a", round: 1, playerId: "C", opponentId: "A", result: MatchResult.WIN, gameWins: 2, gameLosses: 0 },
 ];
@@ -95,7 +108,7 @@ const rr = computeStandings({
   matches,
   options: {
     eventId: "RR-DEMO",
-    acceptSingleEntryMatches: true, // ✅ missing mirrors auto‑generated
+    acceptSingleEntryMatches: true,
   },
 });
 
@@ -110,12 +123,10 @@ console.table(rr);
 import { computeStandings, MatchResult } from "rankings-core";
 
 const matches = [
-  // semifinals
   { id: "sf1-a", round: 1, playerId: "A", opponentId: "B", result: MatchResult.WIN },
   { id: "sf1-b", round: 1, playerId: "B", opponentId: "A", result: MatchResult.LOSS },
   { id: "sf2-c", round: 1, playerId: "C", opponentId: "D", result: MatchResult.WIN },
   { id: "sf2-d", round: 1, playerId: "D", opponentId: "C", result: MatchResult.LOSS },
-  // final
   { id: "f-a", round: 2, playerId: "A", opponentId: "C", result: MatchResult.WIN },
   { id: "f-c", round: 2, playerId: "C", opponentId: "A", result: MatchResult.LOSS },
 ];
@@ -133,29 +144,33 @@ console.table(
   singleElim.map(r => ({
     Rank: r.rank,
     Player: r.playerId,
-    EliminationRound: r.eliminationRound, // 3 = Champion if maxRound=2
+    EliminationRound: r.eliminationRound,
   }))
 );
 ```
 
-**Double-loss scenarios** are fully supported — if both players receive `MatchResult.LOSS` in the same pairing (both sides recorded explicitly), the engine will correctly treat both as eliminated in that round.
-
 ---
 
-### `computeStandings` options
+### `computeStandings` options (updated)
 
 ```ts
 interface ComputeStandingsRequest {
   mode: "swiss" | "roundrobin" | "singleelimination";
   matches: Match[];
   options?: {
-    eventId?: string;                    // deterministic seed for tie fallback
-    applyHeadToHead?: boolean;           // default true
-    tiebreakFloors?: { opponentPctFloor?: number }; // default 0.33
-    points?: { win?: number; draw?: number; loss?: number; bye?: number }; // default 3/1/0/3
-    acceptSingleEntryMatches?: boolean;  // RR & Swiss both support this
-    seeding?: Record<string, number>;    // Single Elim seeding map
-    useBronzeMatch?: boolean;            // Single Elim (optional)
+    eventId?: string;
+    applyHeadToHead?: boolean;
+    tiebreakFloors?: { opponentPctFloor?: number };
+    points?: { win?: number; draw?: number; loss?: number; bye?: number };
+    acceptSingleEntryMatches?: boolean;
+    seeding?: Record<string, number>;
+    useBronzeMatch?: boolean;
+    /** NEW: include BYEs in OMW%/OGWP via virtual opponent */
+    tiebreakVirtualBye?: {
+      enabled?: boolean;
+      mwp?: number;
+      gwp?: number;
+    };
   };
 }
 ```
@@ -443,8 +458,9 @@ If you’re upgrading from a previous version (≤ 1.x) of **`rankings-core`**, 
 - [x] Unified `computeStandings()` dispatcher  
 - [x] `acceptSingleEntryMatches` (lenient ingestion)  
 - [x] Optional WebAssembly build for browsers  
-- [x] **Single Elimination standings engine + eliminationRound support** ✅  
-- [x] **Single Elimination pairing generator + facade support** ✅  
+- [x] Single Elimination pairing generator + facade support 
+- [x] Single Elimination standings engine + eliminationRound support
+- [x] **Swiss option to use virtual player for OMW% calculation** ✅  
 - [ ] Glicko‑2 rating system  
 - [ ] JSON schema validation  
 

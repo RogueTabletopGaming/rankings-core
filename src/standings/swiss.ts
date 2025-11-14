@@ -23,6 +23,9 @@ function sum(ns: number[]): number {
 function isRealOpponent(id: PlayerID | null): id is PlayerID {
   return id !== null;
 }
+function clamp01(x: number): number {
+  return Math.max(0, Math.min(1, x));
+}
 
 // Safe array element accessor for noUncheckedIndexedAccess environments
 function at<T>(arr: T[], idx: number): T | undefined {
@@ -273,7 +276,16 @@ export function computeSwissStandings(
     tiebreakFloors = { opponentPctFloor: PCT_FLOOR_DEFAULT },
     points = { win: 3, draw: 1, loss: 0, bye: 3 },
     acceptSingleEntryMatches = false,
+    // NEW: allow virtual-bye config (default off)
+    tiebreakVirtualBye: vbOpt,
   } = options || {};
+
+  // normalize virtual-bye options with defaults
+  const vb = {
+    enabled: vbOpt?.enabled ?? false,
+    mwp: vbOpt?.mwp ?? 0.5,
+    gwp: vbOpt?.gwp ?? 0.5,
+  };
 
   const input = acceptSingleEntryMatches
     ? normalizeMatchesForMirroring(matches)
@@ -325,11 +337,24 @@ export function computeSwissStandings(
     if (!b) continue;
     const omw: number[] = [];
     const ogw: number[] = [];
+
+    // real opponents
     for (const oid of b.opponents) {
       const oppMs = byPlayer[oid] ?? [];
       omw.push(computeOpponentPctExclSubject(pid, oppMs, false));
       ogw.push(computeOpponentPctExclSubject(pid, oppMs, true));
     }
+
+    // NEW: optional virtual-bye treatment (adds synthetic opponents)
+    if (vb.enabled && b.byes > 0) {
+      const vMW = clamp01(vb.mwp);
+      const vGW = clamp01(vb.gwp);
+      for (let k = 0; k < b.byes; k++) {
+        omw.push(vMW);
+        ogw.push(vGW);
+      }
+    }
+
     b.omwp = avgWithFloor(omw, pctFloor);
     b.ogwp = avgWithFloor(ogw, pctFloor);
   }

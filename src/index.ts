@@ -75,6 +75,21 @@ export interface TiebreakFloors {
   opponentPctFloor?: number;
 }
 
+/**
+ * Virtual-bye configuration for opponent-based tiebreakers.
+ * When enabled, each BYE contributes a synthetic opponent with the given
+ * percentages to OMW%/OGWP averages ONLY (no effect on ELO, SB, etc.).
+ * Defaults: disabled; mwp=0.5; gwp=0.5.
+ */
+export interface TiebreakVirtualByeOptions {
+  /** Enable treating BYEs as virtual opponents for OMW%/OGWP (default: false). */
+  enabled?: boolean;
+  /** MWP (0..1) to attribute to the virtual opponent (default: 0.5). */
+  mwp?: number;
+  /** GWP (0..1) to attribute to the virtual opponent (default: 0.5). */
+  gwp?: number;
+}
+
 // ---- Swiss standings options ----
 export interface ComputeSwissOptions {
   /** Seed for deterministic fallbacks in tie resolution. */
@@ -87,6 +102,13 @@ export interface ComputeSwissOptions {
   points?: PointsConfig;
   /** If true, auto-create the opponent's row when only one side of a match is present. */
   acceptSingleEntryMatches?: boolean;
+
+  /**
+   * Optional: treat each BYE as a virtual opponent with fixed MWP/GWP
+   * for OMW%/OGWP calculations only. Default: disabled.
+   * Example: { enabled: true, mwp: 0.5, gwp: 0.5 }
+   */
+  tiebreakVirtualBye?: TiebreakVirtualByeOptions;
 }
 
 // ---- Round-robin standings options ----
@@ -105,6 +127,12 @@ export interface ComputeRoundRobinOptions {
    * Default: false (expect both directions to be present).
    */
   acceptSingleEntryMatches?: boolean;
+
+  /**
+   * Optional: same behavior as Swiss — virtual BYE contribution to OMW%/OGWP only.
+   * Default: disabled.
+   */
+  tiebreakVirtualBye?: TiebreakVirtualByeOptions;
 }
 
 // ---- Single elimination standings ----

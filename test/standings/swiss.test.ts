@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Match, StandingRow, PlayerID } from "../../src/standings/types";
 import { MatchResult } from "../../src/standings/types";
 import { generateSwissPairings } from "../../src/pairings/swiss";
+import { computeSwissStandings } from "../../src/standings/swiss";
 
 // minimal helper to craft a standings list quickly
 function makeStandings(ids: string[], mp: number[]): StandingRow[] {
@@ -267,4 +268,103 @@ it('E2E across 3 rounds: never repeats opponents when avoidRematches=true', () =
       } as StandingRow;
     }).sort((a,b) => b.matchPoints - a.matchPoints).map((r, idx) => ({ ...r, rank: idx+1 }));
   }
+});
+
+//
+// ---------------- NEW: Swiss standings tests for virtual-bye behavior ----------------
+//
+
+describe("computeSwissStandings – virtual-bye option", () => {
+  /**
+   * Scenario:
+   *  - Round 1: A gets a BYE. B beats C (2–0).
+   *  - Round 2: A beats B (2–0).
+   *
+   * For A's OMW%:
+   *  - Real opponents: [B]
+   *  - B's MWP excluding subject A: only match vs C → 1.0 (win)
+   *  - Without virtual-bye: OMW% = avg([1.0]) = 1.0
+   *  - With virtual-bye (0.5): OMW% = avg([1.0, 0.5]) = 0.75
+   *
+   * OGWP similarly: 1.0 vs C → same math → 0.75 with virtual 0.5.
+   */
+  const baseMatches: Match[] = [
+    // R1: A BYE
+    { id: "r1-A-bye", round: 1, playerId: "A", opponentId: null, result: MatchResult.BYE, gameWins: 0, gameLosses: 0, gameDraws: 0 },
+    // R1: B vs C (B wins 2-0) — include both directions
+    { id: "r1-B-C-b", round: 1, playerId: "B", opponentId: "C", result: MatchResult.WIN, gameWins: 2, gameLosses: 0, gameDraws: 0 },
+    { id: "r1-C-B-b", round: 1, playerId: "C", opponentId: "B", result: MatchResult.LOSS, gameWins: 0, gameLosses: 2, gameDraws: 0 },
+    // R2: A vs B (A wins 2-0)
+    { id: "r2-A-B-a", round: 2, playerId: "A", opponentId: "B", result: MatchResult.WIN, gameWins: 2, gameLosses: 0, gameDraws: 0 },
+    { id: "r2-B-A-a", round: 2, playerId: "B", opponentId: "A", result: MatchResult.LOSS, gameWins: 0, gameLosses: 2, gameDraws: 0 },
+  ];
+
+  it("default (virtual-bye disabled): bye is excluded from OMW%/OGWP", () => {
+    const rows = computeSwissStandings(baseMatches, {
+      eventId: "SWISS-VB-NONE",
+      // default floors & points
+      // virtual-bye disabled by default
+    });
+    const a = rows.find(r => r.playerId === "A")!;
+    expect(a).toBeDefined();
+
+    // A had one real opponent (B); OMW% and OGWP come only from B's pct excluding A → 1.0
+    expect(a.omwp).toBeCloseTo(1.0, 10);
+    expect(a.ogwp).toBeCloseTo(1.0, 10);
+
+    // The virtual opponent is NOT listed anywhere
+    expect(a.opponents).toEqual(["B"]);
+    // MWP/GWP of A themselves are unaffected by the virtual-bye feature
+    // (A has 1 bye and 1 win → MWP = 1.0; GWP counts bye as 2-0 for visibility)
+    expect(a.mwp).toBeCloseTo(1.0, 10);
+  });
+
+  it("when enabled: adds a 0.5 virtual opponent per BYE to OMW%/OGWP", () => {
+    const rows = computeSwissStandings(baseMatches, {
+      eventId: "SWISS-VB-ON",
+      tiebreakVirtualBye: { enabled: true, mwp: 0.5, gwp: 0.5 },
+    });
+    const a = rows.find(r => r.playerId === "A")!;
+    expect(a).toBeDefined();
+
+    // Expected averages: mean([1.0, 0.5]) = 0.75
+    expect(a.omwp).toBeCloseTo(0.75, 10);
+    expect(a.ogwp).toBeCloseTo(0.75, 10);
+
+    // Still not surfaced as a real opponent
+    expect(a.opponents).toEqual(["B"]);
+  });
+
+  it("applies opponent floor to virtual-bye values", () => {
+    const rows = computeSwissStandings(baseMatches, {
+      eventId: "SWISS-VB-FLOOR",
+      tiebreakFloors: { opponentPctFloor: 0.33 },
+      tiebreakVirtualBye: { enabled: true, mwp: 0.1, gwp: 0.1 }, // below floor
+    });
+    const a = rows.find(r => r.playerId === "A")!;
+    expect(a).toBeDefined();
+
+    // Virtual 0.1 is floored to 0.33: mean([1.0, 0.33]) = 0.665...
+    expect(a.omwp).toBeCloseTo((1.0 + 0.33) / 2, 3);
+    expect(a.ogwp).toBeCloseTo((1.0 + 0.33) / 2, 3);
+  });
+
+  it("supports multiple BYEs by contributing one virtual entry per BYE", () => {
+    // Give A an extra BYE in round 3
+    const matches2: Match[] = [
+      ...baseMatches,
+      { id: "r3-A-bye", round: 3, playerId: "A", opponentId: null, result: MatchResult.BYE, gameWins: 0, gameLosses: 0, gameDraws: 0 },
+    ];
+    const rows = computeSwissStandings(matches2, {
+      eventId: "SWISS-VB-2BYES",
+      tiebreakVirtualBye: { enabled: true, mwp: 0.5, gwp: 0.5 },
+    });
+    const a = rows.find(r => r.playerId === "A")!;
+
+    // Now mean([1.0, 0.5, 0.5]) = 2.0 / 3 = 0.666...
+    expect(a.omwp).toBeCloseTo(2 / 3, 10);
+    expect(a.ogwp).toBeCloseTo(2 / 3, 10);
+    expect(a.byes).toBe(2);
+    expect(a.opponents).toEqual(["B"]);
+  });
 });
